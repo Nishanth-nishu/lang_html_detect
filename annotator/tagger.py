@@ -1,80 +1,47 @@
 """
-Annotator: wraps non-English language spans with <lang xml:lang="XX"> tags.
-
-Fixes applied:
-- Leading/trailing whitespace stripped from tag content and emitted outside
-- Punctuation-only spans are never wrapped
+Tagger: wraps identified foreign ranges in <lang xml:lang="..."> tags.
+Handles punctuation stripping to ensure tags wrap only the core text.
 """
 
 from __future__ import annotations
-import re
 from detector.segmenter import segment, LangSpan
-
-# Matches leading whitespace
-_LEAD_WS = re.compile(r'^(\s*)')
-# Matches trailing whitespace
-_TRAIL_WS = re.compile(r'(\s*)$')
-
-
-def _wrap(text: str, lang: str) -> str:
-    """
-    Wrap *text* with <lang xml:lang="lang"> ... </lang>.
-    Leading and trailing whitespace are moved OUTSIDE the tag.
-    """
-    lead = _LEAD_WS.match(text).group(1)
-    tail = _TRAIL_WS.search(text).group(1)
-    content = text[len(lead): len(text) - len(tail) if tail else len(text)]
-    if not content or not any(c.isalpha() for c in content):
-        return text          # nothing to wrap
-    return f'{lead}<lang xml:lang="{lang}">{content}</lang>{tail}'
-
 
 def annotate(text: str) -> str:
     """
-    Detect all non-English language spans in *text* and wrap them with
-    <lang xml:lang="XX">…</lang> tags.
-    Adjacent same-language spans are merged into one tag.
+    Main entry point for tagging text.
     """
     spans = segment(text)
-    parts: list[str] = []
-    for sp in spans:
-        if sp.lang and sp.lang != "en":
-            parts.append(_wrap(sp.text, sp.lang))
-        else:
-            parts.append(sp.text)
-    return "".join(parts)
+    result = []
+    
+    # We strip these characters from the edges of INLINE tags.
+    # We include smart quotes and standard quotes.
+    STRIP_CHARS = " ,.!?;:()\"'“”‘’"
 
-
-def annotate_html(text: str) -> str:
-    """
-    Same as annotate() but returns HTML with colour-coded <span> elements
-    for browser display.
-    """
-    spans = segment(text)
-    parts: list[str] = []
-    for sp in spans:
-        escaped = _html_escape(sp.text)
-        if sp.lang and sp.lang != "en":
-            lead = _LEAD_WS.match(escaped).group(1)
-            tail = _TRAIL_WS.search(escaped).group(1)
-            content = escaped[len(lead): len(escaped) - len(tail) if tail else len(escaped)]
-            if content and any(c.isalpha() for c in sp.text):
-                parts.append(
-                    f'{lead}<span class="lang-span" data-lang="{sp.lang}" '
-                    f'title="{sp.lang}">{content}</span>{tail}'
-                )
+    for span in spans:
+        if span.lang:
+            content = span.text
+            
+            if not span.is_block:
+                # Strip leading/trailing punctuation and whitespace
+                stripped = content.strip(STRIP_CHARS + " \n\r\t")
+                if not stripped:
+                    result.append(content)
+                    continue
+                
+                idx = content.find(stripped)
+                leading = content[:idx]
+                trailing = content[idx + len(stripped):]
+                
+                result.append(f'{leading}<lang xml:lang="{span.lang}">{stripped}</lang>{trailing}')
             else:
-                parts.append(escaped)
+                # For blocks (Chinese, Arabic, full sentences), we wrap the whole thing.
+                # But we still want to strip OUTER whitespace.
+                stripped = content.strip(" \n\r\t")
+                leading = content[:content.find(stripped)]
+                trailing = content[content.find(stripped) + len(stripped):]
+                
+                result.append(f'{leading}<lang xml:lang="{span.lang}">{stripped}</lang>{trailing}')
         else:
-            parts.append(escaped)
-    return "".join(parts)
-
-
-def _html_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&#39;")
-    )
+            result.append(span.text)
+            
+    return "".join(result)

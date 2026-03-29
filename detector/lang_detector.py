@@ -91,7 +91,6 @@ def _get_lingua_detector():
             return _lingua_detector
         _lingua_detector = (
             LanguageDetectorBuilder.from_all_languages()
-            .with_minimum_relative_distance(0.1)
             .build()
         )
     return _lingua_detector
@@ -236,6 +235,10 @@ class LanguageDetector:
     # Only applied to fastText (Lingua's scores are calibrated differently)
     FT_MIN_CONFIDENCE = 0.50
 
+    def __init__(self):
+        self._lingua = _get_lingua_detector()
+        self.lang_enum = Language if _LINGUA_AVAILABLE else None
+
     def detect(self, text: str) -> tuple[str | None, float]:
         """
         Return (iso_639_1_code, confidence) for the given text.
@@ -250,23 +253,38 @@ class LanguageDetector:
         if script_lang:
             return script_lang, 1.0
 
-        # Layer 2: Lingua — trust the hard decision directly.
-        # Lingua's compute_language_confidence_values scores are NOT probabilities;
-        # they are low-valued regardless of correctness on short text.
-        # The hard detect_language_of() is the reliable output.
-        detector = _get_lingua_detector()
-        if detector:
+        # Layer 2: Lingua
+        if self._lingua:
             try:
-                lang = detector.detect_language_of(text)
-                if lang is not None:
-                    iso = _lingua_lang_to_iso(lang)
-                    return iso, 0.85   # We trust Lingua's hard decision
+                # Get all confidence values to see the gap between top and English
+                conf_values = self._lingua.compute_language_confidence_values(text)
+                if not conf_values:
+                    return None, 0.0
+                
+                top = conf_values[0]
+                if top.language == self.lang_enum.ENGLISH:
+                    return None, top.value
+                
+                # Find English confidence for comparison
+                en_conf = next((c.value for c in conf_values if c.language == self.lang_enum.ENGLISH), 0.0)
+                
+                # If it's a very short piece of text, require a margin
+                # Lingua confidences are very small (e.g. 0.05), so we use a relative ratio
+                if len(text) < 20:
+                    # Require top lang to be significantly more likely than English
+                    if top.value < 0.01: # Extremely low confidence
+                        return None, 0.0
+                    if top.value < en_conf * 2.0:
+                        return None, top.value
+                
+                iso = _lingua_lang_to_iso(top.language)
+                return iso, 0.85 # We map Lingua's top pick to a "trust" value
             except Exception:
                 pass
 
-        # Layer 3: fastText fallback (for text Lingua returns None on)
+        # Layer 3: fastText fallback
         ft_lang, ft_conf = _fasttext_detect(text)
-        if ft_lang and ft_conf >= self.FT_MIN_CONFIDENCE:
+        if ft_lang and ft_lang != "en" and ft_conf >= self.FT_MIN_CONFIDENCE:
             return ft_lang, ft_conf
 
         return None, 0.0
