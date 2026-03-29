@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Foreign Language Identifier · AI Manuscript Annotator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #21262d;
+      --border:    #30363d;
+      --accent:    #58a6ff;
+      --accent2:   #7c3aed;
+      --green:     #3fb950;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+      --radius:    12px;
+      --shadow:    0 8px 32px rgba(0,0,0,.45);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Inter", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 1.5rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    header .logo {
+      width: 42px; height: 42px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+    }
+    header h1 {
+      font-size: 1.25rem; font-weight: 700; letter-spacing: -.4px;
+    }
+    header p {
+      font-size: .8rem; color: var(--muted); margin-top: 2px;
+    }
+    header .badge {
+      margin-left: auto;
+      background: rgba(63,185,80,.12);
+      border: 1px solid rgba(63,185,80,.3);
+      color: var(--green);
+      font-size: .7rem; font-weight: 600;
+      padding: .25rem .65rem;
+      border-radius: 100px;
+      letter-spacing: .5px;
+    }
+
+    /* ── Main layout ────────────────────────────────────── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto 1fr auto;
+      gap: 0;
+      max-width: 1600px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2rem;
+      gap: 1.5rem;
+    }
+
+    /* ── Cards ──────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .85rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .card-header .label {
+      font-size: .8rem; font-weight: 600; color: var(--muted);
+      letter-spacing: .6px; text-transform: uppercase;
+    }
+    .card-header .actions {
+      display: flex; gap: .5rem;
+    }
+
+    /* ── Textareas / output areas ───────────────────────── */
+    textarea, .output-pane {
+      flex: 1;
+      padding: 1rem 1.25rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: .8rem;
+      line-height: 1.8;
+      border: none;
+      outline: none;
+      resize: none;
+      background: transparent;
+      color: var(--text);
+    }
+    textarea::placeholder { color: var(--muted); }
+    .output-pane {
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 260px;
+    }
+
+    /* ── Detected language spans (HTML view) ────────────── */
+    .output-html .lang-span {
+      border-radius: 4px;
+      padding: 1px 3px;
+      position: relative;
+      cursor: default;
+      transition: filter .15s;
+    }
+    .output-html .lang-span:hover { filter: brightness(1.2); }
+    .output-html .lang-span::after {
+      content: attr(data-lang);
+      position: absolute;
+      top: -22px; left: 50%;
+      transform: translateX(-50%);
+      background: #000; color: #fff;
+      font-size: .65rem; font-weight: 600;
+      padding: 2px 6px; border-radius: 4px;
+      white-space: nowrap;
+      opacity: 0; pointer-events: none;
+      transition: opacity .12s;
+      z-index: 10;
+    }
+    .output-html .lang-span:hover::after { opacity: 1; }
+
+    /* 30 distinct hues rotated around the wheel */
+    .lang-span[data-lang="es"] { background: rgba(239,68,68,.20); color: #fca5a5; }
+    .lang-span[data-lang="fr"] { background: rgba(59,130,246,.20); color: #93c5fd; }
+    .lang-span[data-lang="de"] { background: rgba(234,179,8,.20);  color: #fde047; }
+    .lang-span[data-lang="it"] { background: rgba(34,197,94,.20);  color: #86efac; }
+    .lang-span[data-lang="pt"] { background: rgba(168,85,247,.20); color: #d8b4fe; }
+    .lang-span[data-lang="zh"] { background: rgba(236,72,153,.20); color: #f9a8d4; }
+    .lang-span[data-lang="ja"] { background: rgba(249,115,22,.20); color: #fdba74; }
+    .lang-span[data-lang="ko"] { background: rgba(20,184,166,.20); color: #5eead4; }
+    .lang-span[data-lang="ar"] { background: rgba(99,102,241,.20); color: #c7d2fe; }
+    .lang-span[data-lang="he"] { background: rgba(244,114,182,.20);color: #fbcfe8; }
+    .lang-span[data-lang="hi"] { background: rgba(251,146,60,.20); color: #fed7aa; }
+    .lang-span[data-lang="ta"] { background: rgba(163,230,53,.20); color: #bef264; }
+    .lang-span[data-lang="te"] { background: rgba(129,140,248,.20);color: #e0e7ff; }
+    .lang-span[data-lang="kn"] { background: rgba(74,222,128,.20); color: #bbf7d0; }
+    .lang-span[data-lang="ml"] { background: rgba(52,211,153,.20); color: #a7f3d0; }
+    .lang-span[data-lang="bn"] { background: rgba(248,113,113,.20);color: #fecaca; }
+    .lang-span[data-lang="pa"] { background: rgba(196,181,253,.20);color: #ede9fe; }
+    .lang-span[data-lang="gu"] { background: rgba(110,231,183,.20);color: #d1fae5; }
+    .lang-span[data-lang="ru"] { background: rgba(147,197,253,.20);color: #dbeafe; }
+    .lang-span[data-lang="uk"] { background: rgba(253,224,71,.20); color: #fef08a; }
+    .lang-span[data-lang="el"] { background: rgba(52,211,153,.20); color: #6ee7b7; }
+    .lang-span[data-lang="tr"] { background: rgba(251,191,36,.20); color: #fcd34d; }
+    .lang-span[data-lang="vi"] { background: rgba(167,243,208,.20);color: #6ee7b7; }
+    .lang-span[data-lang="th"] { background: rgba(216,180,254,.20);color: #c084fc; }
+    .lang-span[data-lang="my"] { background: rgba(253,186,116,.20);color: #fb923c; }
+    .lang-span[data-lang="km"] { background: rgba(134,239,172,.20);color: #4ade80; }
+    .lang-span[data-lang="si"] { background: rgba(125,211,252,.20);color: #38bdf8; }
+    .lang-span[data-lang="ka"] { background: rgba(249,168,212,.20);color: #f472b6; }
+    .lang-span[data-lang="hy"] { background: rgba(253,230,138,.20);color: #fbbf24; }
+    /* Catch-all */
+    .lang-span { background: rgba(148,163,184,.15); color: #94a3b8; }
+
+    /* ── Tab strip ──────────────────────────────────────── */
+    .tabs { display: flex; gap: .5rem; padding: .75rem 1.25rem; border-bottom: 1px solid var(--border); }
+    .tab {
+      font-size: .75rem; font-weight: 600;
+      padding: .35rem .85rem;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .tab.active, .tab:hover {
+      background: var(--surface2);
+      border-color: var(--border);
+      color: var(--text);
+    }
+    .tab.active { color: var(--accent); border-color: var(--accent); }
+
+    /* ── Controls ───────────────────────────────────────── */
+    .controls {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    button {
+      font-family: "Inter", sans-serif;
+      font-size: .85rem;
+      font-weight: 600;
+      padding: .6rem 1.5rem;
+      border-radius: 8px;
+      cursor: pointer;
+      border: none;
+      transition: all .2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      box-shadow: 0 4px 16px rgba(88,166,255,.3);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(88,166,255,.45); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { color: var(--text); border-color: var(--muted); }
+
+    #status {
+      font-size: .8rem;
+      color: var(--muted);
+      margin-left: auto;
+    }
+    #status.processing { color: var(--accent); }
+    #status.done { color: var(--green); }
+
+    /* ── Sample loader ───────────────────────────────────── */
+    .sample-bar {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+    .sample-btn {
+      font-size: .72rem;
+      padding: .3rem .7rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .sample-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    /* ── Legend ─────────────────────────────────────────── */
+    #legend {
+      grid-column: 1 / -1;
+      display: flex; flex-wrap: wrap; gap: .4rem;
+      padding: .75rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    #legend .legend-item {
+      font-size: .72rem; font-weight: 500;
+      padding: .2rem .6rem;
+      border-radius: 5px;
+      display: flex; align-items: center; gap: .35rem;
+    }
+    #legend .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* ── Spinner ─────────────────────────────────────────── */
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🌐</div>
+  <div>
+    <h1>Foreign Language Identifier</h1>
+    <p>AI-powered multilingual manuscript annotator</p>
+  </div>
+  <div class="badge">100% Open-Source · Local AI</div>
+</header>
+
+<main>
+
+  <!-- Sample loader -->
+  <div class="sample-bar">
+    <span style="font-size:.75rem;color:var(--muted);align-self:center;margin-right:.25rem;">Load sample:</span>
+    {% for i in range(1, 12) %}
+    <button class="sample-btn" onclick="loadSample({{ i }})">Sample {{ i }}</button>
+    {% endfor %}
+  </div>
+
+  <!-- Input card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="label">📝 Input Text</span>
+      <div class="actions">
+        <button class="btn-secondary" style="padding:.3rem .75rem;font-size:.75rem" onclick="clearInput()">Clear</button>
+      </div>
+    </div>
+    <textarea id="inputText" placeholder="Paste your manuscript text here…&#10;&#10;Example: Hello, Merci, Gracias, 谢谢, شكرا, நன்றி" rows="14"></textarea>
+  </div>
+
+  <!-- Output card -->
+  <div class="card">
+    <div class="card-header">
+      <span class="label">🏷️ Annotated Output</span>
+      <div class="actions">
+        <button class="btn-secondary" style="padding:.3rem .75rem;font-size:.75rem" onclick="copyOutput()">Copy</button>
+      </div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" id="tab-visual" onclick="switchTab('visual')">Visual</button>
+      <button class="tab" id="tab-xml" onclick="switchTab('xml')">XML Tags</button>
+    </div>
+    <div id="output-visual" class="output-pane output-html"></div>
+    <div id="output-xml" class="output-pane" style="display:none"></div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn-primary" id="detectBtn" onclick="detect()">
+      Detect Languages
+    </button>
+    <div class="spinner" id="spinner"></div>
+    <span id="status"></span>
+  </div>
+
+  <!-- Legend -->
+  <div id="legend" style="display:none"></div>
+
+</main>
+
+<script>
+const SAMPLES = {{ samples|tojson }};
+
+let currentTab = "visual";
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById("tab-visual").classList.toggle("active", tab === "visual");
+  document.getElementById("tab-xml").classList.toggle("active", tab === "xml");
+  document.getElementById("output-visual").style.display = tab === "visual" ? "" : "none";
+  document.getElementById("output-xml").style.display = tab === "xml" ? "" : "none";
+}
+
+function loadSample(n) {
+  const key = "Sample " + n;
+  if (SAMPLES[key] !== undefined) {
+    document.getElementById("inputText").value = SAMPLES[key];
+  }
+}
+
+function clearInput() {
+  document.getElementById("inputText").value = "";
+  document.getElementById("output-visual").innerHTML = "";
+  document.getElementById("output-xml").textContent = "";
+  document.getElementById("legend").style.display = "none";
+  document.getElementById("status").textContent = "";
+}
+
+function copyOutput() {
+  const text = document.getElementById("output-xml").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const s = document.getElementById("status");
+    s.textContent = "✓ Copied!"; s.className = "done";
+    setTimeout(() => { s.textContent = ""; s.className = ""; }, 2000);
+  });
+}
+
+const LANG_NAMES = {
+  en:"English",es:"Spanish",fr:"French",de:"German",it:"Italian",pt:"Portuguese",
+  zh:"Chinese",ja:"Japanese",ko:"Korean",ar:"Arabic",he:"Hebrew",hi:"Hindi",
+  ta:"Tamil",te:"Telugu",kn:"Kannada",ml:"Malayalam",bn:"Bengali",pa:"Punjabi",
+  gu:"Gujarati",ru:"Russian",uk:"Ukrainian",el:"Greek",tr:"Turkish",vi:"Vietnamese",
+  th:"Thai",my:"Burmese",km:"Khmer",si:"Sinhala",ka:"Georgian",hy:"Armenian",
+  az:"Azerbaijani",kk:"Kazakh",uz:"Uzbek",ky:"Kyrgyz",tg:"Tajik",mn:"Mongolian",
+  fa:"Persian",ur:"Urdu",sw:"Swahili",ha:"Hausa",yo:"Yoruba",ig:"Igbo",
+  so:"Somali",zu:"Zulu",xh:"Xhosa",eu:"Basque",cy:"Welsh",ga:"Irish",
+  la:"Latin",eo:"Esperanto",nl:"Dutch",sv:"Swedish",da:"Danish",fi:"Finnish",
+  no:"Norwegian",pl:"Polish",cs:"Czech",sk:"Slovak",hu:"Hungarian",ro:"Romanian",
+  hr:"Croatian",sr:"Serbian",sl:"Slovenian",mk:"Macedonian",sq:"Albanian",
+  lt:"Lithuanian",lv:"Latvian",et:"Estonian",or:"Odia",as:"Assamese",
+  mr:"Marathi",ne:"Nepali",lo:"Lao",mi:"Maori",sm:"Samoan",to:"Tongan",
+  fj:"Fijian",mg:"Malagasy",ht:"Haitian Creole",ku:"Kurdish",
+};
+
+function buildLegend(html) {
+  const langs = new Set();
+  const re = /data-lang="([^"]+)"/g;
+  let m;
+  while ((m = re.exec(html)) !== null) langs.add(m[1]);
+  const legend = document.getElementById("legend");
+  if (!langs.size) { legend.style.display = "none"; return; }
+  legend.style.display = "flex";
+  legend.innerHTML = '<span style="font-size:.72rem;color:var(--muted);font-weight:600;margin-right:.25rem;">Detected:</span>';
+  langs.forEach(lang => {
+    const item = document.createElement("div");
+    item.className = "legend-item lang-span";
+    item.setAttribute("data-lang", lang);
+    item.innerHTML = `<span>${lang.toUpperCase()}</span>`;
+    if (LANG_NAMES[lang]) item.title = LANG_NAMES[lang];
+    legend.appendChild(item);
+  });
+}
+
+async function detect() {
+  const text = document.getElementById("inputText").value.trim();
+  if (!text) { document.getElementById("status").textContent = "Please enter some text first."; return; }
+
+  const btn = document.getElementById("detectBtn");
+  const spinner = document.getElementById("spinner");
+  const status = document.getElementById("status");
+  btn.disabled = true;
+  spinner.style.display = "inline-block";
+  status.textContent = "Processing…";
+  status.className = "processing";
+
+  try {
+    const resp = await fetch("/annotate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    const data = await resp.json();
+    if (data.error) { status.textContent = data.error; status.className = ""; return; }
+
+    document.getElementById("output-visual").innerHTML = data.html;
+    document.getElementById("output-xml").textContent = data.xml;
+    buildLegend(data.html);
+    status.textContent = "✓ Done";
+    status.className = "done";
+  } catch (e) {
+    status.textContent = "Error: " + e.message;
+    status.className = "";
+  } finally {
+    btn.disabled = false;
+    spinner.style.display = "none";
+  }
+}
+
+// Ctrl+Enter shortcut
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") detect();
+});
+</script>
+
+</body>
+</html>
