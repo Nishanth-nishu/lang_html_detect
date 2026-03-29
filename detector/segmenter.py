@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from detector.unicode_script import split_by_script, dominant_script
 from detector.lang_detector import get_detector
 
-# Sentence boundary  — split after . ! ? followed by whitespace
-_SENT_RE = re.compile(r'(?<=[.!?])\s+')
+# Sentence boundary — split after . ! ? ; : followed by whitespace
+_SENT_RE = re.compile(r'(?<=[.!?\\;:])\s+')
 # Word token
 _WORD_RE = re.compile(r'\S+')
 # Has at least one non-ASCII alphabetic char (diacritic, etc.)
@@ -56,27 +56,20 @@ def _is_likely_transliteration(word: str) -> bool:
     return False
 
 
+# Regex to match leading "Language Name: " or "Script Name (Transliteration): " headers
+_HEADER_RE = re.compile(r'^([A-Z][a-z]+(\s+[A-Z][a-z]+)*[:\s(]+(\([A-Z][a-z/]+\):\s+)?)+', re.UNICODE)
+
 def _detect_block(text: str) -> list[LangSpan]:
     detector = get_detector()
     text_stripped = text.strip()
     if not text_stripped or not any(c.isalpha() for c in text_stripped):
         return [LangSpan(text=text, lang=None)]
 
-    # Detect the whole block first
-    lang, conf = detector.detect(text_stripped)
-    
-    # If the whole block is English or low confidence, treat as None (English)
-    if not lang or lang == "en" or conf < 0.3:
-        return [LangSpan(text=text, lang=None)]
-
-    # If it's a long sentence and strongly detected as foreign, return as one span
-    if len(text_stripped.split()) > 3 and conf > 0.7:
-        return [LangSpan(text=text, lang=lang)]
-
-    # Otherwise, try sentence-level for better precision
+    # ALWAYS split by sentence first for Latin blocks to handle mixed-language blocks correctly
     sentences = _SENT_RE.split(text)
     result = []
     remaining = text
+    
     for sent in sentences:
         if not sent.strip():
             continue
@@ -85,8 +78,26 @@ def _detect_block(text: str) -> list[LangSpan]:
             result.append(LangSpan(text=remaining[:idx], lang=None))
         
         s_lang, s_conf = detector.detect(sent)
-        effective_lang = s_lang if (s_lang and s_lang != "en" and s_conf > 0.5) else None
-        result.append(LangSpan(text=sent, lang=effective_lang))
+        
+        # Heuristic: if sentence is strongly detected as foreign, label it.
+        # But skip if it's just a common English word or very short.
+        if s_lang and s_lang != "en" and s_conf > 0.4:
+            # Check for English headers like "Spanish: "
+            m = _HEADER_RE.match(sent)
+            if m:
+                header = m.group()
+                content = sent[len(header):]
+                if header.strip():
+                    result.append(LangSpan(text=header, lang=None))
+                if content.strip():
+                    # Recurse on content or just detect
+                    c_lang, c_conf = detector.detect(content)
+                    result.append(LangSpan(text=content, lang=c_lang if (c_lang and c_lang != "en" and c_conf > 0.5) else None))
+            else:
+                result.append(LangSpan(text=sent, lang=s_lang))
+        else:
+            result.append(LangSpan(text=sent, lang=None))
+            
         remaining = remaining[idx + len(sent):]
     
     if remaining:
@@ -124,9 +135,8 @@ def _detect_word_level(text: str) -> list[LangSpan]:
 
 def _merge_adjacent(spans: list[LangSpan]) -> list[LangSpan]:
     """
-    Merge consecutive spans sharing the same language code.
-    Iteratively absorbs neutral spans (spaces/punctuation) into adjacent 
-    language spans if it helps keep a sentence together.
+    Greedily merge spans of the same language, absorbing all intermediate
+    neutral characters. Prevents fragmented tags.
     """
     if not spans:
         return []
@@ -138,25 +148,33 @@ def _merge_adjacent(spans: list[LangSpan]) -> list[LangSpan]:
         i = 0
         while i < len(current):
             c = current[i]
-            # 1. Lookahead for Lang(A) + Neutral + Lang(A)
-            if i + 2 < len(current) and c.lang is not None:
-                mid = current[i+1]
-                nxt = current[i+2]
-                if mid.lang is None and not any(ch.isalpha() for ch in mid.text) and nxt.lang == c.lang:
-                    merged = LangSpan(text=c.text + mid.text + nxt.text, lang=c.lang)
-                    new_spans.append(merged)
-                    i += 3
-                    changed = True
-                    continue
+            # Greedy lookahead for Lang(A) + (Neutral)* + Lang(A)
+            if c.lang is not None:
+                j = i + 1
+                neutral_acc = ""
+                while j < len(current):
+                    mid = current[j]
+                    if mid.lang is None and not any(ch.isalpha() for ch in mid.text):
+                        neutral_acc += mid.text
+                        j += 1
+                    elif mid.lang == c.lang:
+                        # Found same language! Merge everything from i to j.
+                        merged_text = c.text + neutral_acc + mid.text
+                        c = LangSpan(text=merged_text, lang=c.lang)
+                        i = j
+                        changed = True
+                        # Reset greedy search from new end
+                        j = i + 1
+                        neutral_acc = ""
+                    else:
+                        break
             
-            # 2. Lookahead for identical adjacent languages
+            # Simple identity merge for adjacent identical labels
             if i + 1 < len(current) and c.lang == current[i+1].lang:
-                merged = LangSpan(text=c.text + current[i+1].text, lang=c.lang)
-                new_spans.append(merged)
-                i += 2
+                c = LangSpan(text=c.text + current[i+1].text, lang=c.lang)
+                i += 1
                 changed = True
-                continue
-                
+
             new_spans.append(c)
             i += 1
         
