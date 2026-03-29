@@ -1,159 +1,206 @@
 """
-Text segmenter: splits mixed-language text into labelled spans.
+Text segmenter: splits mixed-language text into labelled LangSpan objects.
 
-Strategy:
-  1. Walk the text character-by-character, grouping into Unicode-script runs.
-  2. For Latin segments, further split by sentence boundaries.
-  3. Detect language of each span.
-  4. Merge adjacent spans that share the same detected language.
+Strategy per Latin block:
+  1. Sentence-split, then detect each sentence.
+  2. Skip short all-ASCII words without diacritics in word-level mode
+     (prevents romanised transliterations like 'Pahaad', 'Jabal' from being
+     falsely tagged as foreign languages).
+  3. Never call detect_multiple_languages_of() — too many false spans.
 """
 
 from __future__ import annotations
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from detector.unicode_script import split_by_script, dominant_script
 from detector.lang_detector import get_detector
+
+# Sentence boundary  — split after . ! ? followed by whitespace
+_SENT_RE = re.compile(r'(?<=[.!?])\s+')
+# Word token
+_WORD_RE = re.compile(r'\S+')
+# Has at least one non-ASCII alphabetic char (diacritic, etc.)
+_HAS_DIACRITIC = re.compile(r'[^\x00-\x7F]')
 
 
 @dataclass
 class LangSpan:
     text: str
-    lang: str | None          # ISO 639-1, or None for English / unknown
+    lang: str | None
     start: int = 0
     end: int = 0
 
 
-# Sentence-ending punctuation (greedy split for Latin blocks)
-_SENT_SPLIT_RE = re.compile(r'(?<=[.!?])\s+')
+# Common English words/language names that should not be tagged as foreign
+_LANG_NAMES_EN = {
+    "hindi", "spanish", "arabic", "japanese", "chinese", "tamil", "french", 
+    "german", "italian", "portuguese", "russian", "korean", "english"
+}
 
-# A "word" token — for inline word-level detection
-_WORD_RE = re.compile(r'\S+')
 
-
-def _detect_latin_block(text: str) -> list[LangSpan]:
+def _is_likely_transliteration(word: str) -> bool:
     """
-    Detect language in a Latin-script text block.
-    First tries Lingua's multi-language span detection;
-    falls back to sentence-level then word-level detection.
+    Revised heuristic: all-ASCII, short, and NO diacritics.
+    We also skip words that are common language names in English.
     """
+    w = word.lower().strip(",.()\"'")
+    if w in _LANG_NAMES_EN:
+        return True
+    
+    if not word.isascii() or _HAS_DIACRITIC.search(word):
+        return False
+    
+    # Short ASCII word → likely transliteration or English
+    if len(word) <= 7:
+        return True
+    return False
+
+
+def _detect_block(text: str) -> list[LangSpan]:
     detector = get_detector()
+    text_stripped = text.strip()
+    if not text_stripped or not any(c.isalpha() for c in text_stripped):
+        return [LangSpan(text=text, lang=None)]
 
-    # Try Lingua multi-language span detection directly
-    spans = detector.detect_spans(text)
-    if spans:
-        result: list[LangSpan] = []
-        prev = 0
-        for start, end, iso in spans:
-            if start > prev:
-                gap = text[prev:start]
-                if gap.strip():
-                    result.append(LangSpan(text=gap, lang=None))
-                else:
-                    result.append(LangSpan(text=gap, lang=None))
-            chunk = text[start:end]
-            result.append(LangSpan(text=chunk, lang=iso if iso != "en" else None))
-            prev = end
-        if prev < len(text):
-            tail = text[prev:]
-            result.append(LangSpan(text=tail, lang=None))
-        return result
+    # Detect the whole block first
+    lang, conf = detector.detect(text_stripped)
+    
+    # If the whole block is English or low confidence, treat as None (English)
+    if not lang or lang == "en" or conf < 0.3:
+        return [LangSpan(text=text, lang=None)]
 
-    # Fallback: sentence-level detection
-    sentences = _SENT_SPLIT_RE.split(text)
-    if len(sentences) > 1:
-        result = []
-        remaining = text
-        for sent in sentences:
-            lang, conf = detector.detect(sent)
-            result.append(LangSpan(text=sent, lang=lang if lang != "en" else None))
-            # Append the separator that was consumed
-            after = len(sent)
-            if remaining[after:after+1] in (' ', '\n', '\t'):
-                result.append(LangSpan(text=remaining[after:after+1], lang=None))
-                remaining = remaining[after+1:]
-            else:
-                remaining = remaining[after:]
-        return result
+    # If it's a long sentence and strongly detected as foreign, return as one span
+    if len(text_stripped.split()) > 3 and conf > 0.7:
+        return [LangSpan(text=text, lang=lang)]
 
-    # Single-sentence block: whole-block detection
-    lang, conf = detector.detect(text)
-    return [LangSpan(text=text, lang=lang if lang != "en" else None)]
+    # Otherwise, try sentence-level for better precision
+    sentences = _SENT_RE.split(text)
+    result = []
+    remaining = text
+    for sent in sentences:
+        if not sent.strip():
+            continue
+        idx = remaining.find(sent)
+        if idx > 0:
+            result.append(LangSpan(text=remaining[:idx], lang=None))
+        
+        s_lang, s_conf = detector.detect(sent)
+        effective_lang = s_lang if (s_lang and s_lang != "en" and s_conf > 0.5) else None
+        result.append(LangSpan(text=sent, lang=effective_lang))
+        remaining = remaining[idx + len(sent):]
+    
+    if remaining:
+        result.append(LangSpan(text=remaining, lang=None))
+    return result
 
 
 def _detect_word_level(text: str) -> list[LangSpan]:
-    """
-    Word-level detection for a mixed inline block.
-    Used when the block contains both script-classified and Latin tokens.
-    """
+    detector = get_detector()
     result: list[LangSpan] = []
     pos = 0
-    detector = get_detector()
+
     for m in _WORD_RE.finditer(text):
-        # Add any whitespace before this word
+        word = m.group()
         if m.start() > pos:
             result.append(LangSpan(text=text[pos:m.start()], lang=None))
-        word = m.group()
-        # Script check first
+
         script_lang = dominant_script(word)
         if script_lang:
+            # Words in non-Latin scripts are ALWAYS tagged
             result.append(LangSpan(text=word, lang=script_lang))
+        elif _is_likely_transliteration(word):
+            result.append(LangSpan(text=word, lang=None))
         else:
             lang, conf = detector.detect(word)
-            result.append(LangSpan(text=word, lang=lang if lang != "en" else None))
+            # Be extremely conservative for single words in mixed blocks
+            result.append(LangSpan(text=word, lang=lang if (lang and lang != "en" and conf > 0.8) else None))
+
         pos = m.end()
+
     if pos < len(text):
         result.append(LangSpan(text=text[pos:], lang=None))
     return result
 
 
 def _merge_adjacent(spans: list[LangSpan]) -> list[LangSpan]:
-    """Merge consecutive spans that share the same language code."""
+    """
+    Merge consecutive spans sharing the same language code.
+    Iteratively absorbs neutral spans (spaces/punctuation) into adjacent 
+    language spans if it helps keep a sentence together.
+    """
     if not spans:
         return []
-    merged = [LangSpan(text=spans[0].text, lang=spans[0].lang)]
-    for sp in spans[1:]:
-        last = merged[-1]
-        if sp.lang == last.lang:
-            last.text += sp.text
-        else:
-            merged.append(LangSpan(text=sp.text, lang=sp.lang))
-    return merged
+    
+    current = spans
+    while True:
+        changed = False
+        new_spans = []
+        i = 0
+        while i < len(current):
+            c = current[i]
+            # 1. Lookahead for Lang(A) + Neutral + Lang(A)
+            if i + 2 < len(current) and c.lang is not None:
+                mid = current[i+1]
+                nxt = current[i+2]
+                if mid.lang is None and not any(ch.isalpha() for ch in mid.text) and nxt.lang == c.lang:
+                    merged = LangSpan(text=c.text + mid.text + nxt.text, lang=c.lang)
+                    new_spans.append(merged)
+                    i += 3
+                    changed = True
+                    continue
+            
+            # 2. Lookahead for identical adjacent languages
+            if i + 1 < len(current) and c.lang == current[i+1].lang:
+                merged = LangSpan(text=c.text + current[i+1].text, lang=c.lang)
+                new_spans.append(merged)
+                i += 2
+                changed = True
+                continue
+                
+            new_spans.append(c)
+            i += 1
+        
+        current = new_spans
+        if not changed:
+            break
+            
+    return current
 
 
 def segment(text: str) -> list[LangSpan]:
     """
-    Main entry point. Split *text* into language-labelled spans.
-    Returns a list of LangSpan objects whose .text fields concatenate
-    to exactly reproduce the original text.
+    Main entry point. Split *text* into language-labelled LangSpan objects.
+    The .text fields of all returned spans concatenate to exactly reproduce
+    the original text.
     """
     if not text:
         return []
 
-    # 1. Split by Unicode script
     script_runs = split_by_script(text)
-
     result: list[LangSpan] = []
-    for (chunk, base_lang) in script_runs:
+
+    for chunk, base_lang in script_runs:
         if not chunk:
             continue
+
         if base_lang is not None:
-            # Non-Latin script — script heuristic already gave us the language.
-            # But if the chunk has mixed word characters, do word-level.
+            # Non-Latin script — Unicode heuristic already classified it
             result.append(LangSpan(text=chunk, lang=base_lang))
         else:
-            # Latin or ASCII — needs linguistic detection
-            # Heuristic: if chunk contains non-ASCII Latin chars mixed with pure ASCII,
-            # try word-level detection for inline words; otherwise sentence-level.
-            has_mixed_scripts = any(ord(c) > 0x024F for c in chunk if c.isalpha())
-            if has_mixed_scripts:
+            # Latin or neutral (punctuation / spaces)
+            if not any(c.isalpha() for c in chunk):
+                # Pure whitespace/punctuation — always neutral
+                result.append(LangSpan(text=chunk, lang=None))
+            elif any(ord(c) > 0x024F for c in chunk if c.isalpha()):
+                # Has non-basic-Latin alpha chars — word-level detection
                 result.extend(_detect_word_level(chunk))
             else:
-                result.extend(_detect_latin_block(chunk))
+                # Pure Latin — sentence-level detection
+                result.extend(_detect_block(chunk))
 
-    # 2. Merge adjacent same-language spans
     merged = _merge_adjacent(result)
 
-    # 3. Assign character offsets
+    # Assign character offsets
     pos = 0
     for sp in merged:
         sp.start = pos
