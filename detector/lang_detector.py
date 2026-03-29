@@ -30,12 +30,16 @@ except ImportError:
     print("[warn] lingua not available; Latin detection quality will be reduced.")
 
 # ---------------------------------------------------------------------------
-# fastText setup — download model on first use
+# fastText setup — download model to persistent cache on first use
 # ---------------------------------------------------------------------------
 _FT_MODEL_URL = (
     "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
 )
-_FT_MODEL_PATH = Path(__file__).parent.parent / "models" / "lid.176.bin"
+
+# Use a persistent cache directory to avoid re-downloading in bundled EXE
+_CACHE_DIR = Path.home() / ".cache" / "lang_detect"
+_FT_MODEL_PATH = _CACHE_DIR / "models" / "lid.176.bin"
+
 _ft_model = None
 _ft_lock = threading.Lock()
 
@@ -56,12 +60,19 @@ def _get_fasttext_model():
             return _ft_model
         if not _FT_LIB_AVAILABLE:
             return None
+        
+        # Ensure persistent cache directory exists
         if not _FT_MODEL_PATH.exists():
             _FT_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
             print(f"[info] Downloading fastText model to {_FT_MODEL_PATH} …")
-            urllib.request.urlretrieve(_FT_MODEL_URL, _FT_MODEL_PATH)
+            urllib.request.urlretrieve(_FT_MODEL_URL, str(_FT_MODEL_PATH))
             print("[info] fastText model downloaded.")
-        _ft_model = _ft_lib.load_model(str(_FT_MODEL_PATH))
+            
+        try:
+            _ft_model = _ft_lib.load_model(str(_FT_MODEL_PATH))
+        except Exception as e:
+            print(f"[err] Failed to load fastText model: {e}")
+            return None
     return _ft_model
 
 
