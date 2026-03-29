@@ -57,7 +57,8 @@ def _is_likely_transliteration(word: str) -> bool:
 
 
 # Regex to match leading "Language Name: " or "Script Name (Transliteration): " headers
-_HEADER_RE = re.compile(r'^([A-Z][a-z]+(\s+[A-Z][a-z]+)*[:\s(]+(\([A-Z][a-z/]+\):\s+)?)+', re.UNICODE)
+# Requires a colon (:) to avoid false positives on capitalized foreign words at start of sentence.
+_HEADER_RE = re.compile(r'^([A-Z][a-z]+(\s+[A-Z][a-z]+)*[:(]+(\s*\([A-Z][a-z/]+\):\s+)?[:\s]*)+', re.UNICODE)
 
 def _detect_block(text: str) -> list[LangSpan]:
     detector = get_detector()
