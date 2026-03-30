@@ -191,13 +191,23 @@ def _merge_adjacent(spans: list[LangSpan]) -> list[LangSpan]:
                 acc_text = ""
                 while j < len(current):
                     mid = current[j]
-                    # Parity fix: Don't merge across commas for names, nor across sentence boundaries for blocks.
-                    if mid.text.strip() == "," and not c.is_block:
-                         break
-                    if "." in mid.text and ("." not in c.text or c.is_block):
-                         break
+                    
+                    # RTL languages (Arabic, Hebrew, Persian) MUST NOT be fragmented.
+                    # If we split them into multiple <lang> tags, they render visually reversed in LTR environments.
+                    is_rtl = c.lang in ["ar", "he", "fa"]
+                    
+                    if not is_rtl:
+                        # Parity fix: Don't merge across commas for names, nor across sentence boundaries for blocks.
+                        if mid.text.strip() == "," and not c.is_block:
+                             break
+                        if "." in mid.text and ("." not in c.text or c.is_block):
+                             break
                          
-                    if mid.lang is None and mid.text.isspace() and "\n" not in mid.text:
+                    # For RTL, we merge across spaces, commas, and neutral punctuation.
+                    # For LTR, just across spaces.
+                    is_neutral = mid.text.isspace() or (is_rtl and mid.text.strip() in [",", "،", ";", ":", "-", "(", ")", "[", "]", "."])
+                    
+                    if mid.lang is None and is_neutral and "\n" not in mid.text:
                         acc_text += mid.text
                         j += 1
                     elif mid.lang == c.lang:
