@@ -1,47 +1,51 @@
-"""
-Tagger: wraps identified foreign ranges in <lang xml:lang="..."> tags.
-Handles punctuation stripping to ensure tags wrap only the core text.
-"""
+import string
 
-from __future__ import annotations
-from detector.segmenter import segment, LangSpan
-
-def annotate(text: str) -> str:
+def tag_spans(spans):
     """
-    Main entry point for tagging text.
+    Wraps language spans in <lang xml:lang="...">...</lang> tags.
     """
-    spans = segment(text)
-    result = []
+    output = []
+    # Western scripts where final punctuation often goes outside
+    WESTERN_TAGS = {"en", "es", "de", "fr", "it", "pt", "sv", "fi", "ru", "tr", "pl", "cs", "hu", "hr", "sr", "sl", "lt", "lv", "et", "sq", "ro", "bg", "uk", "be", "mk", "el", "cy", "ga", "eu", "la"}
     
-    # We strip these characters from the edges of INLINE tags.
-    # We include smart quotes and standard quotes.
-    STRIP_CHARS = " ,.!?;:()\"'“”‘’"
-
     for span in spans:
         if span.lang:
-            content = span.text
-            
-            if not span.is_block:
-                # Strip leading/trailing punctuation and whitespace
-                stripped = content.strip(STRIP_CHARS + " \n\r\t")
-                if not stripped:
-                    result.append(content)
-                    continue
+            text = span.text
+            # Identify surrounding punctuation for Western languages
+            if span.lang in WESTERN_TAGS:
+                l_pun = ""
+                r_pun = ""
                 
-                idx = content.find(stripped)
-                leading = content[:idx]
-                trailing = content[idx + len(stripped):]
+                # Strip leading punctuation/whitespace
+                while text and text[0] in (string.whitespace + string.punctuation + "“”‘’"):
+                     l_pun += text[0]
+                     text = text[1:]
                 
-                result.append(f'{leading}<lang xml:lang="{span.lang}">{stripped}</lang>{trailing}')
+                # Strip trailing punctuation/whitespace
+                while text and text[-1] in (string.whitespace + string.punctuation + "“”‘’"):
+                     r_pun = text[-1] + r_pun
+                     text = text[:-1]
+                
+                if text:
+                    output.append(f"{l_pun}<lang xml:lang=\"{span.lang}\">{text}</lang>{r_pun}")
+                else:
+                    output.append(l_pun + r_pun)
             else:
-                # For blocks (Chinese, Arabic, full sentences), we wrap the whole thing.
-                # But we still want to strip OUTER whitespace.
-                stripped = content.strip(" \n\r\t")
-                leading = content[:content.find(stripped)]
-                trailing = content[content.find(stripped) + len(stripped):]
+                # For non-Western (CJK, Indic, Arabic, Hebrew), keep internal punctuation
+                # But remove extra surrounding spaces
+                l_space = ""
+                r_space = ""
+                while text and text[0].isspace():
+                    l_space += text[0]
+                    text = text[1:]
+                while text and text[-1].isspace():
+                    r_space = text[-1] + r_space
+                    text = text[:-1]
                 
-                result.append(f'{leading}<lang xml:lang="{span.lang}">{stripped}</lang>{trailing}')
+                if text:
+                    output.append(f"{l_space}<lang xml:lang=\"{span.lang}\">{text}</lang>{r_space}")
+                else:
+                    output.append(l_space + r_space)
         else:
-            result.append(span.text)
-            
-    return "".join(result)
+            output.append(span.text)
+    return "".join(output)
