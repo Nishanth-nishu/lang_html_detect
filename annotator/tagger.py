@@ -49,3 +49,11 @@ def tag_spans(spans):
         else:
             output.append(span.text)
     return "".join(output)
+from detector.segmenter import segment
+
+def annotate(text):
+    """
+    Convenience function for CLI: segments then tags.
+    """
+    spans = segment(text)
+    return tag_spans(spans)
