@@ -77,7 +77,7 @@ def _process_docx(input_path: Path, output_path: Path | None) -> None:
     print(f"[lang_detect] Wrote annotated document: {out}")
     print(
         "[lang_detect] Open the output file in Word / LibreOffice to see\n"
-        "              colour-highlighted foreign-language spans."
+        "              inline <lang xml:lang=\"xx\"> annotations."
     )
 
 
