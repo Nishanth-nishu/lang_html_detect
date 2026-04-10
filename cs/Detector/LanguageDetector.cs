@@ -1,16 +1,17 @@
-using Lingua.NET;
+using Lingua.Net;
 using System.Collections.Concurrent;
 
 namespace LangDetect.Detector;
 
 public class LanguageDetector
 {
-    private readonly Lingua.NET.LanguageDetector _lingua;
+    private readonly ILanguageDetector _lingua;
     private static readonly ConcurrentDictionary<Language, string> _isoCache = new();
 
     public LanguageDetector()
     {
-        _lingua = LanguageDetectorBuilder.FromAllLanguages().Build();
+        var builder = LanguageDetectorBuilder.FromAllLanguages();
+        _lingua = LinguaMethods.BuildDetector(builder);
     }
 
     public (string? lang, double confidence) Detect(string text)
@@ -31,25 +32,13 @@ public class LanguageDetector
         // Layer 2: Lingua
         try
         {
-            var confidences = _lingua.ComputeLanguageConfidenceValues(text);
-            if (confidences.Count == 0) return (null, 0.0);
-
-            var top = confidences.OrderByDescending(c => c.Value).First();
-            if (top.Language == Language.English)
+            var language = _lingua.DetectLanguageOf(text);
+            if (language == null || language == Language.ENGLISH)
             {
-                return (null, top.Value);
+                return (null, 0.0);
             }
 
-            // Find English confidence for margin check
-            double enConf = confidences.FirstOrDefault(c => c.Language == Language.English)?.Value ?? 0.0;
-
-            if (text.Length < 20)
-            {
-                if (top.Value < 0.01) return (null, 0.0);
-                if (top.Value < enConf * 2.0) return (null, top.Value);
-            }
-
-            return (GetIsoCode(top.Language), 0.85);
+            return (GetIsoCode(language.Value), 0.85);
         }
         catch
         {

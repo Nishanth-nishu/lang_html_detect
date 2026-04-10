@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "dgSpecHash": "iYwhSQrvbEU=",
+  "success": true,
+  "projectFilePath": "/scratch/nishanth.r/tn/lang_html_detect/cs/LangDetect.csproj",
+  "expectedPackageFiles": [
+    "/home2/nishanth.r/.nuget/packages/documentformat.openxml/3.0.1/documentformat.openxml.3.0.1.nupkg.sha512",
+    "/home2/nishanth.r/.nuget/packages/documentformat.openxml.framework/3.0.1/documentformat.openxml.framework.3.0.1.nupkg.sha512",
+    "/home2/nishanth.r/.nuget/packages/lingua.net/0.16.0/lingua.net.0.16.0.nupkg.sha512",
+    "/home2/nishanth.r/.nuget/packages/lingua.net.linux-x64/0.16.0/lingua.net.linux-x64.0.16.0.nupkg.sha512",
+    "/home2/nishanth.r/.nuget/packages/microsoft.net.illink.tasks/8.0.8/microsoft.net.illink.tasks.8.0.8.nupkg.sha512",
+    "/home2/nishanth.r/.nuget/packages/system.io.packaging/8.0.0/system.io.packaging.8.0.0.nupkg.sha512",
+    "/home2/nishanth.r/.nuget/packages/microsoft.aspnetcore.app.runtime.linux-x64/8.0.8/microsoft.aspnetcore.app.runtime.linux-x64.8.0.8.nupkg.sha512",
+    "/home2/nishanth.r/.nuget/packages/microsoft.netcore.app.runtime.linux-x64/8.0.8/microsoft.netcore.app.runtime.linux-x64.8.0.8.nupkg.sha512"
+  ],
+  "logs": []
+}

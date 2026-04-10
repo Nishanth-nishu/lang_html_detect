@@ -44,17 +44,26 @@ public static class UnicodeScript
             return "COMBINING";
         }
 
-        // Simplistic script detection by checking Unicode ranges
         int code = (int)c;
 
+        // Order matters: Specific scripts first, then broad ranges like Han (CJK)
         if (code >= 0x0600 && code <= 0x06FF) return "Arabic";
         if (code >= 0x0750 && code <= 0x077F) return "Arabic";
         if (code >= 0x0590 && code <= 0x05FF) return "Hebrew";
         if (code >= 0x0400 && code <= 0x04FF) return "Cyrillic";
-        if (code >= 0x2E80 && code <= 0x9FFF) return "Han"; // CJK
+        
+        // Japanese
         if (code >= 0x3040 && code <= 0x309F) return "Hiragana";
         if (code >= 0x30A0 && code <= 0x30FF) return "Katakana";
+        
+        // Korean
         if (code >= 0xAC00 && code <= 0xD7AF) return "Hangul";
+        
+        // Chinese / CJK Unified Ideographs
+        if (code >= 0x4E00 && code <= 0x9FFF) return "Han";
+        if (code >= 0x3400 && code <= 0x4DBF) return "Han";
+        if (code >= 0x2E80 && code <= 0x2EFF) return "Han";
+
         if (code >= 0x0900 && code <= 0x097F) return "Devanagari";
         if (code >= 0x0B80 && code <= 0x0BFF) return "Tamil";
         if (code >= 0x0980 && code <= 0x09FF) return "Bengali";
