@@ -1,0 +1,8 @@
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.docuser
+.vs/
+/scratch/nishanth.r/tn/dotnet/
+/scratch/nishanth.r/tn/probe/
