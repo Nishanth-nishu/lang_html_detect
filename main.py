@@ -11,6 +11,8 @@ Usage:
   python3 main.py --input FILE.txt        # plain-text file (sample format)
   python3 main.py --input FILE.docx       # Word document → writes FILE_annotated.docx
   python3 main.py --input FILE.docx -o OUT.docx  # specify output path
+  python3 main.py --json                  # output as JSON instead of plain annotated text
+  python3 main.py --json --sample 1       # JSON output for a specific sample
 """
 
 import argparse
@@ -28,6 +30,7 @@ else:
 sys.path.insert(0, str(_BASE))
 
 from annotator.tagger import annotate
+from annotator.json_output import annotate_json
 
 SAMPLES_FILE = _BASE / "samples" / "input_samples.txt"
 
@@ -51,13 +54,20 @@ def load_samples(path: Path) -> dict[str, str]:
     return samples
 
 
-def process(label: str, text: str) -> None:
+def process(label: str, text: str, json_mode: bool = False) -> None:
     sep = "=" * 70
-    print(f"\n{sep}\n  {label}\n{sep}")
-    print("[INPUT]")
-    print(text)
-    print("\n[OUTPUT]")
-    print(annotate(text))
+    if json_mode:
+        import json
+        raw = annotate_json(text)
+        data = json.loads(raw)
+        data["sample"] = label
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(f"\n{sep}\n  {label}\n{sep}")
+        print("[INPUT]")
+        print(text)
+        print("\n[OUTPUT]")
+        print(annotate(text))
 
 
 def _process_docx(input_path: Path, output_path: Path | None) -> None:
@@ -109,10 +119,17 @@ Examples:
         "--output", "-o",
         help="Output .docx path (only used when --input is a .docx file)",
     )
+    parser.add_argument(
+        "--json", "-j", action="store_true",
+        help="Output in JSON format instead of plain annotated text",
+    )
     args = parser.parse_args()
 
     if args.text:
-        print(annotate(args.text))
+        if args.json:
+            print(annotate_json(args.text))
+        else:
+            print(annotate(args.text))
 
     elif args.input:
         path = Path(args.input)
@@ -132,7 +149,7 @@ Examples:
                 )
             samples = load_samples(path)
             for label, text in samples.items():
-                process(label, text)
+                process(label, text, json_mode=args.json)
 
     elif args.sample:
         samples = load_samples(SAMPLES_FILE)
@@ -140,12 +157,12 @@ Examples:
         if key not in samples:
             print(f"Error: '{key}' not found.", file=sys.stderr)
             sys.exit(1)
-        process(key, samples[key])
+        process(key, samples[key], json_mode=args.json)
 
     else:
         samples = load_samples(SAMPLES_FILE)
         for label, text in samples.items():
-            process(label, text)
+            process(label, text, json_mode=args.json)
 
 
 if __name__ == "__main__":
