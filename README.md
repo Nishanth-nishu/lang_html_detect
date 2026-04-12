@@ -36,8 +36,31 @@ python3 main.py --input manuscript.docx --output result.docx
 # Process all 11 benchmark samples
 python3 main.py
 
+# Output as JSON (structured data)
+python3 main.py --json --sample 1
+python3 main.py --json --text "Merci, Gracias"
+
 # Direct text input
 python3 main.py --text "C'est la vie"
+```
+
+### JSON Format
+Using the `--json` flag produces structured output:
+```json
+{
+  "input": "...",
+  "annotated": "<lang xml:lang=\"es\">Gracias</lang>",
+  "spans": [
+    { "text": "Gracias", "lang": "es", "is_foreign": true }
+  ],
+  "languages_detected": ["es"]
+}
+```
+
+### Validation
+Run the cross-validation script to verify JSON output across all benchmark samples:
+```bash
+python3 validate_json_output.py
 ```
 
 ---
