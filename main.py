@@ -29,7 +29,7 @@ else:
 
 sys.path.insert(0, str(_BASE))
 
-from annotator.tagger import annotate
+from annotator.tagger import annotate, annotate_html
 from annotator.json_output import annotate_json
 
 SAMPLES_FILE = _BASE / "samples" / "input_samples.txt"
@@ -54,20 +54,60 @@ def load_samples(path: Path) -> dict[str, str]:
     return samples
 
 
-def process(label: str, text: str, json_mode: bool = False) -> None:
+def process(label: str, text: str, json_mode: bool = False) -> tuple[str, str]:
     sep = "=" * 70
+    text_out = ""
+    html_out = ""
     if json_mode:
         import json
         raw = annotate_json(text)
         data = json.loads(raw)
         data["sample"] = label
-        print(json.dumps(data, ensure_ascii=False, indent=2))
+        json_str = json.dumps(data, ensure_ascii=False, indent=2)
+        print(json_str)
+        return json_str, f"<pre>{json_str}</pre>"
     else:
-        print(f"\n{sep}\n  {label}\n{sep}")
-        print("[INPUT]")
-        print(text)
-        print("\n[OUTPUT]")
-        print(annotate(text))
+        text_out = f"\n{sep}\n  {label}\n{sep}\n[INPUT]\n{text}\n\n[OUTPUT]\n{annotate(text)}\n"
+        print(text_out)
+        html_out = f"<h3>{label}</h3><div style='white-space: pre-wrap; font-family: monospace;'>{annotate_html(text)}</div>"
+        return text_out, html_out
+
+
+def save_execution_report(results: list[tuple[str, str]]) -> None:
+    """Consolidates results and saves to lang/_html/."""
+    out_dir = Path("lang/_html")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    full_text = "\n".join([r[0] for r in results])
+    with open(out_dir / "execution_output.txt", "w", encoding="utf-8") as f:
+        f.write(full_text)
+
+    # Basic HTML wrapper with styles from the web UI
+    styles = """
+    <style>
+        body { font-family: sans-serif; background: #0d1117; color: #e6edf3; padding: 2rem; }
+        h3 { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; }
+        .lang-span { border-radius: 4px; padding: 1px 3px; position: relative; }
+        .lang-span[data-lang="es"] { background: rgba(239,68,68,.20); color: #fca5a5; }
+        .lang-span[data-lang="fr"] { background: rgba(59,130,246,.20); color: #93c5fd; }
+        .lang-span[data-lang="de"] { background: rgba(234,179,8,.20);  color: #fde047; }
+        .lang-span[data-lang="it"] { background: rgba(34,197,94,.20);  color: #86efac; }
+        .lang-span[data-lang="zh"] { background: rgba(236,72,153,.20); color: #f9a8d4; }
+        .lang-span[data-lang="ar"] { background: rgba(99,102,241,.20); color: #c7d2fe; }
+        .lang-span[data-lang="ta"] { background: rgba(163,230,53,.20); color: #bef264; }
+        .lang-span[data-lang="hi"] { background: rgba(251,146,60,.20); color: #fed7aa; }
+        /* Add more as needed, or a catch-all */
+        .lang-span { background: rgba(148,163,184,.15); color: #94a3b8; }
+    </style>
+    """
+    full_html = f"<!DOCTYPE html><html><head><meta charset='utf-8'>{styles}</head><body>"
+    full_html += "\n<hr>\n".join([r[1] for r in results])
+    full_html += "</body></html>"
+
+    with open(out_dir / "execution_output.html", "w", encoding="utf-8") as f:
+        f.write(full_html)
+
+    print(f"\n[info] Saved consolidated results to: {out_dir}/")
 
 
 def _process_docx(input_path: Path, output_path: Path | None) -> None:
@@ -125,6 +165,7 @@ Examples:
     )
     args = parser.parse_args()
 
+    results = []
     if args.text:
         if args.json:
             print(annotate_json(args.text))
@@ -149,7 +190,8 @@ Examples:
                 )
             samples = load_samples(path)
             for label, text in samples.items():
-                process(label, text, json_mode=args.json)
+                results.append(process(label, text, json_mode=args.json))
+            save_execution_report(results)
 
     elif args.sample:
         samples = load_samples(SAMPLES_FILE)
@@ -157,12 +199,14 @@ Examples:
         if key not in samples:
             print(f"Error: '{key}' not found.", file=sys.stderr)
             sys.exit(1)
-        process(key, samples[key], json_mode=args.json)
+        results.append(process(key, samples[key], json_mode=args.json))
+        save_execution_report(results)
 
     else:
         samples = load_samples(SAMPLES_FILE)
         for label, text in samples.items():
-            process(label, text, json_mode=args.json)
+            results.append(process(label, text, json_mode=args.json))
+        save_execution_report(results)
 
 
 if __name__ == "__main__":
